@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Asistente Baker Tilly Colombia</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="brand-panel" aria-label="Baker Tilly Colombia">
+        <div class="brand-mark">BT</div>
+        <p class="eyebrow">Baker Tilly Colombia</p>
+        <h1>Asistente de servicios corporativos</h1>
+        <p class="intro">
+          Oriente a clientes potenciales, capture sus datos de contacto y resuma su necesidad para seguimiento comercial.
+        </p>
+        <div class="status-list">
+          <span>Auditoría y aseguramiento</span>
+          <span>Outsourcing contable</span>
+          <span>Tributario, legal y consultoría</span>
+          <span>Sostenibilidad, riesgos y salud</span>
+        </div>
+      </section>
+
+      <section class="chat-panel" aria-label="Chat del asistente">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">Motor de atención</p>
+            <h2>Bot de captación</h2>
+          </div>
+          <button id="resetButton" class="ghost-button" type="button">Reiniciar</button>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <input id="chatInput" type="text" autocomplete="off" placeholder="Escribe aquí..." aria-label="Mensaje">
+          <button type="submit">Enviar</button>
+        </form>
+      </section>
+
+      <aside class="lead-panel" aria-label="Datos capturados">
+        <div class="lead-header">
+          <p class="eyebrow">Lead</p>
+          <h2>Datos recopilados</h2>
+        </div>
+        <dl id="leadSummary" class="lead-summary"></dl>
+        <div class="lead-actions">
+          <button id="emailButton" type="button">Preparar correo</button>
+          <button id="downloadButton" class="ghost-button" type="button">Descargar JSON</button>
+        </div>
+        <p class="small-note">
+          En hosting con backend, el envío automático se activa configurando correo y variables de entorno.
+        </p>
+      </aside>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

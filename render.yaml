@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: bot-baker-tilly-colombia
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: LEADS_EMAIL
+        value: dtnieto@bakertilly.co
+      - key: FROM_EMAIL
+        value: Bot Baker Tilly <onboarding@resend.dev>
+      - key: RESEND_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_VECTOR_STORE_ID
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
