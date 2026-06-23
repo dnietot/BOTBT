@@ -139,6 +139,108 @@ function validateField(key, value) {
   return value.trim().length >= 2;
 }
 
+function cleanValue(value) {
+  return String(value || "")
+    .replace(/^[\s,.:;-]+|[\s,.:;-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function titleCaseName(value) {
+  return cleanValue(value)
+    .split(/\s+/)
+    .map((word) => word.length > 2 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word)
+    .join(" ");
+}
+
+function extractWithPatterns(text, patterns) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) return cleanValue(match[1]);
+  }
+  return "";
+}
+
+function stopAtNextField(value) {
+  return cleanValue(value.split(/\b(?:mi correo|correo|email|e-mail|telefono|teléfono|whatsapp|celular|empresa|compania|compañia|compañía|cargo|ciudad|pais|país|servicio|necesito|busco|quiero|requiero|inquietud)\b/i)[0]);
+}
+
+function extractLeadData(text, preferredKey) {
+  const raw = cleanValue(text);
+  const normalized = normalize(raw);
+  const data = {};
+  const email = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const phone = raw.match(/(?:\+?\d[\d\s().-]{6,}\d)/);
+  const service = bestServiceMatch(raw);
+
+  if (email) data.email = email[0];
+  if (phone) data.telefono = cleanValue(phone[0]);
+  if (service && !normalized.includes("no se") && !normalized.includes("no estoy seguro")) {
+    data.servicio = service.name;
+  }
+
+  const name = extractWithPatterns(raw, [
+    /\b(?:me llamo|mi nombre es)\s+([^,.;\n]+?)(?=\s+(?:y|de|en|mi|trabajo|laboro|correo|email|telefono|teléfono|whatsapp|necesito|busco|quiero|requiero)\b|[,.;\n]|$)/i
+  ]);
+  if (name) data.nombre = titleCaseName(name);
+
+  const company = extractWithPatterns(raw, [
+    /\b(?:empresa es|compania es|compañia es|compañía es|trabajo en|laboro en|represento a|soy de)\s+([^,.;\n]+?)(?=\s+(?:y|como|mi|correo|email|telefono|teléfono|whatsapp|necesito|busco|quiero|requiero)\b|[,.;\n]|$)/i,
+    /\b(?:empresa|compania|compañia|compañía):\s*([^,.;\n]+)/i
+  ]);
+  if (company) data.empresa = stopAtNextField(company);
+
+  const role = extractWithPatterns(raw, [
+    /\b(?:mi cargo es|cargo es|soy el|soy la)\s+([^,.;\n]+?)(?=\s+(?:de|en|para|y mi|mi correo|correo|email|telefono|teléfono|whatsapp|necesito|busco|quiero|requiero)\b|[,.;\n]|$)/i,
+    /\b(?:cargo):\s*([^,.;\n]+)/i
+  ]);
+  if (role) data.cargo = stopAtNextField(role);
+
+  const location = extractWithPatterns(raw, [
+    /\b(?:estoy en|ubicado en|ubicada en|ciudad es|pais es|país es|en la ciudad de|desde)\s+([^,.;\n]+?)(?=\s+(?:y|mi|correo|email|telefono|teléfono|whatsapp|servicio|necesito|busco|quiero|requiero)\b|[,.;\n]|$)/i,
+    /\b(?:pais\/ciudad|país\/ciudad|ubicacion|ubicación|ciudad):\s*([^,.;\n]+)/i
+  ]);
+  if (location) data.ubicacion = stopAtNextField(location);
+
+  const need = extractWithPatterns(raw, [
+    /\b(?:necesito|busco|quiero|me interesa|quisiera|requiero|mi inquietud es|la inquietud es)\s+(.+)$/i
+  ]);
+  if (need) data.inquietud = cleanValue(need);
+
+  if (preferredKey && !data[preferredKey]) {
+    if (preferredKey === "nombre") data.nombre = titleCaseName(raw.replace(/^(me llamo|mi nombre es|soy)\s+/i, ""));
+    if (preferredKey === "empresa") data.empresa = stopAtNextField(raw.replace(/^(mi empresa es|empresa es|trabajo en|laboro en|represento a)\s+/i, ""));
+    if (preferredKey === "cargo") data.cargo = stopAtNextField(raw.replace(/^(mi cargo es|cargo es|soy el|soy la|soy)\s+/i, ""));
+    if (preferredKey === "email" && email) data.email = email[0];
+    if (preferredKey === "telefono" && phone) data.telefono = cleanValue(phone[0]);
+    if (preferredKey === "ubicacion") data.ubicacion = stopAtNextField(raw.replace(/^(estoy en|ubicado en|ubicada en|ciudad es|pais es|país es|desde)\s+/i, ""));
+    if (preferredKey === "servicio") data.servicio = service ? service.name : raw;
+    if (preferredKey === "inquietud") data.inquietud = raw;
+  }
+
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => cleanValue(value).length > 0));
+}
+
+function mergeExtractedLead(extracted) {
+  let changed = false;
+  for (const field of leadFields) {
+    const value = extracted[field.key];
+    if (value && validateField(field.key, value)) {
+      state.lead[field.key] = value;
+      changed = true;
+    }
+  }
+  if (changed) persistLead();
+  return changed;
+}
+
+function missingFieldsText() {
+  return leadFields
+    .filter((field) => !state.lead[field.key])
+    .map((field) => field.label)
+    .join(", ");
+}
+
 function bestServiceMatch(text) {
   const query = normalize(text);
   const ranked = serviceKnowledge
@@ -215,13 +317,8 @@ async function finishLead() {
 
 function handleFieldAnswer(value) {
   const field = leadFields[state.fieldIndex];
-  if (!validateField(field.key, value)) {
-    addMessage("bot", field.key === "email" ? "Por favor ingresa un correo válido para continuar." : "Por favor completa este dato con un poco más de detalle.");
-    return;
-  }
-
-  state.lead[field.key] = value.trim();
-  persistLead();
+  const extracted = extractLeadData(value, field.key);
+  mergeExtractedLead(extracted);
   state.fieldIndex = nextMissingField();
 
   if (state.fieldIndex === -1) {
@@ -229,6 +326,13 @@ function handleFieldAnswer(value) {
     return;
   }
 
+  if (!extracted[field.key] && !state.lead[field.key]) {
+    addMessage("bot", field.key === "email" ? "Por favor ingresa un correo válido para continuar." : "Gracias. Para completar el registro necesito este dato de forma clara.");
+    addMessage("bot", field.prompt);
+    return;
+  }
+
+  addMessage("bot", `Gracias, he actualizado los datos detectados. Aún necesito: ${missingFieldsText()}.`);
   addMessage("bot", leadFields[state.fieldIndex].prompt);
 }
 
@@ -239,7 +343,7 @@ function composeEmailBody() {
 function prepareEmail() {
   const subject = encodeURIComponent(`Nuevo lead Baker Tilly Colombia - ${state.lead.empresa || state.lead.nombre || "Sin nombre"}`);
   const body = encodeURIComponent(`${composeEmailBody()}\n\nFuente: Bot de captación Baker Tilly Colombia\nFecha: ${new Date().toLocaleString("es-CO")}`);
-  window.location.href = `mailto:comercial@bakertilly.co?subject=${subject}&body=${body}`;
+  window.location.href = `mailto:dtnieto@bakertilly.co?subject=${subject}&body=${body}`;
 }
 
 function downloadLead() {
