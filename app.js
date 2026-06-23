@@ -81,7 +81,9 @@ const serviceKnowledge = [
 const state = {
   lead: {},
   fieldIndex: 0,
-  completed: false
+  completed: false,
+  history: [],
+  leadSubmitted: false
 };
 
 const messages = document.querySelector("#messages");
@@ -296,6 +298,45 @@ async function answerQuestion(text) {
   return localAnswerQuestion(text);
 }
 
+async function chatWithAI(text) {
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        lead: state.lead,
+        history: state.history.slice(-8)
+      })
+    });
+
+    if (!response.ok) return false;
+    const data = await response.json();
+    if (!data.answer) return false;
+
+    state.lead = { ...state.lead, ...(data.lead || {}) };
+    state.fieldIndex = nextMissingField();
+    state.completed = Boolean(data.completed) || state.fieldIndex === -1;
+    persistLead();
+
+    state.history.push({ role: "user", content: text });
+    state.history.push({ role: "assistant", content: data.answer });
+    addMessage("bot", data.answer);
+
+    if (state.completed && !state.leadSubmitted) {
+      const saved = await submitLeadToServer();
+      state.leadSubmitted = saved;
+      if (saved) {
+        addMessage("bot", "He enviado tus datos al equipo de Baker Tilly Colombia para seguimiento.");
+      }
+    }
+
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function submitLeadToServer() {
   const payload = {
     ...state.lead,
@@ -378,18 +419,24 @@ chatForm.addEventListener("submit", (event) => {
   addMessage("user", value);
   chatInput.value = "";
 
+  chatWithAI(value).then((handled) => {
+    if (handled) return;
+
   if (!state.completed) {
     handleFieldAnswer(value);
     return;
   }
 
   answerQuestion(value).then((answer) => addMessage("bot", answer));
+  });
 });
 
 resetButton.addEventListener("click", () => {
   state.lead = {};
   state.fieldIndex = 0;
   state.completed = false;
+  state.history = [];
+  state.leadSubmitted = false;
   messages.innerHTML = "";
   renderLead();
   addMessage("bot", "Bienvenido al asistente de Baker Tilly Colombia. Para orientarte y canalizar tu solicitud, recopilaré algunos datos de contacto.");

@@ -10,6 +10,18 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_VECTOR_STORE_ID = process.env.OPENAI_VECTOR_STORE_ID || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
+const REQUIRED_FIELDS = ["nombre", "empresa", "cargo", "email", "telefono", "ubicacion", "servicio", "inquietud"];
+const FIELD_LABELS = {
+  nombre: "Nombre",
+  empresa: "Empresa",
+  cargo: "Cargo",
+  email: "Email",
+  telefono: "Telefono / WhatsApp",
+  ubicacion: "Pais / ciudad",
+  servicio: "Servicio de interes",
+  inquietud: "Inquietud o necesidad"
+};
+
 const publicFiles = {
   "/": "index.html",
   "/index.html": "index.html",
@@ -39,6 +51,25 @@ function readJson(req) {
   });
 }
 
+function loadPortfolioContext() {
+  const filePath = path.join(__dirname, "portfolio_text.txt");
+  if (!fs.existsSync(filePath)) return "";
+  return fs.readFileSync(filePath, "utf8").slice(0, 45000);
+}
+
+function missingLeadFields(lead) {
+  return REQUIRED_FIELDS.filter((key) => !String(lead[key] || "").trim());
+}
+
+function safeJsonParse(text) {
+  const cleaned = String(text || "")
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  return JSON.parse(cleaned);
+}
+
 function leadEmailText(lead) {
   return [
     "Nuevo lead capturado desde el bot de Baker Tilly Colombia.",
@@ -47,9 +78,9 @@ function leadEmailText(lead) {
     `Empresa: ${lead.empresa || ""}`,
     `Cargo: ${lead.cargo || ""}`,
     `Email: ${lead.email || ""}`,
-    `Teléfono / WhatsApp: ${lead.telefono || ""}`,
-    `País / ciudad: ${lead.ubicacion || ""}`,
-    `Servicio de interés: ${lead.servicio || ""}`,
+    `Telefono / WhatsApp: ${lead.telefono || ""}`,
+    `Pais / ciudad: ${lead.ubicacion || ""}`,
+    `Servicio de interes: ${lead.servicio || ""}`,
     `Inquietud o necesidad: ${lead.inquietud || ""}`,
     "",
     `Fecha: ${lead.createdAt || new Date().toISOString()}`
@@ -81,10 +112,18 @@ async function sendLeadEmail(lead) {
   return response.json();
 }
 
-async function answerWithOpenAI(message, lead) {
-  if (!OPENAI_API_KEY || !OPENAI_VECTOR_STORE_ID) {
-    return null;
-  }
+async function converseWithOpenAI({ message, lead, history }) {
+  if (!OPENAI_API_KEY) return null;
+
+  const currentLead = lead || {};
+  const portfolioContext = OPENAI_VECTOR_STORE_ID ? "" : loadPortfolioContext();
+  const tools = OPENAI_VECTOR_STORE_ID
+    ? [{ type: "file_search", vector_store_ids: [OPENAI_VECTOR_STORE_ID] }]
+    : undefined;
+
+  const conversation = Array.isArray(history)
+    ? history.slice(-8).map((item) => `${item.role}: ${item.content}`).join("\n")
+    : "";
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -96,11 +135,18 @@ async function answerWithOpenAI(message, lead) {
       model: OPENAI_MODEL,
       instructions: [
         "Eres el asistente corporativo de Baker Tilly Colombia.",
-        "Responde en español, con tono corporativo, claro y consultivo.",
-        "Usa el portafolio de servicios como fuente principal.",
-        "No inventes precios, promesas, tiempos ni condiciones no presentes en la información disponible.",
-        "Cuando el caso requiera asesoría comercial o técnica, solicita continuar el contacto con un asesor.",
-        "Si falta información documental, dilo con prudencia y ofrece canalizar el requerimiento."
+        "Responde en espanol con tono corporativo, claro, consultivo y natural.",
+        "Tu objetivo es conversar, orientar sobre servicios y captar clientes potenciales.",
+        "Extrae datos aunque el usuario los entregue en frases naturales y conserva los datos ya conocidos.",
+        "Debes recopilar estos campos: nombre, empresa, cargo, email, telefono, ubicacion, servicio, inquietud.",
+        "Pregunta maximo dos datos faltantes por turno para que la conversacion no se sienta como formulario.",
+        "Usa el portafolio de servicios como fuente principal para hablar de Baker Tilly Colombia.",
+        "No inventes precios, promesas, tiempos ni condiciones no presentes en la informacion disponible.",
+        "Cuando el caso requiera asesoria comercial o tecnica, ofrece canalizarlo con un asesor.",
+        "Devuelve unicamente JSON valido sin markdown.",
+        "Estructura exacta: {\"answer\":\"mensaje para el usuario\",\"lead\":{\"nombre\":\"\",\"empresa\":\"\",\"cargo\":\"\",\"email\":\"\",\"telefono\":\"\",\"ubicacion\":\"\",\"servicio\":\"\",\"inquietud\":\"\"},\"missingFields\":[\"campo\"],\"completed\":false}.",
+        "En lead incluye solo campos conocidos o inferidos con confianza; no inventes datos personales.",
+        "completed debe ser true solo cuando esten completos todos los campos requeridos."
       ].join(" "),
       input: [
         {
@@ -108,17 +154,18 @@ async function answerWithOpenAI(message, lead) {
           content: [
             {
               type: "input_text",
-              text: `Datos del lead: ${JSON.stringify(lead)}\n\nPregunta o inquietud: ${message}`
+              text: [
+                portfolioContext ? `Portafolio de servicios:\n${portfolioContext}` : "",
+                conversation ? `Conversacion reciente:\n${conversation}` : "",
+                `Datos actuales del lead: ${JSON.stringify(currentLead)}`,
+                `Campos requeridos: ${REQUIRED_FIELDS.map((key) => `${key} (${FIELD_LABELS[key]})`).join(", ")}`,
+                `Mensaje del usuario: ${message}`
+              ].filter(Boolean).join("\n\n")
             }
           ]
         }
       ],
-      tools: [
-        {
-          type: "file_search",
-          vector_store_ids: [OPENAI_VECTOR_STORE_ID]
-        }
-      ]
+      ...(tools ? { tools } : {})
     })
   });
 
@@ -128,7 +175,16 @@ async function answerWithOpenAI(message, lead) {
   }
 
   const data = await response.json();
-  return data.output_text || null;
+  const parsed = safeJsonParse(data.output_text || "{}");
+  const mergedLead = { ...currentLead, ...(parsed.lead || {}) };
+  const missingFields = missingLeadFields(mergedLead);
+
+  return {
+    answer: parsed.answer || "Gracias. Para continuar, por favor comparteme un poco mas de informacion sobre tu necesidad.",
+    lead: mergedLead,
+    missingFields,
+    completed: missingFields.length === 0
+  };
 }
 
 function saveLead(lead) {
@@ -144,8 +200,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/leads") {
     try {
       const lead = await readJson(req);
-      const required = ["nombre", "empresa", "cargo", "email", "telefono", "ubicacion", "servicio", "inquietud"];
-      const missing = required.filter((key) => !String(lead[key] || "").trim());
+      const missing = missingLeadFields(lead);
       if (missing.length) {
         send(res, 400, JSON.stringify({ ok: false, missing }), { "Content-Type": "application/json" });
         return;
@@ -164,12 +219,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/chat") {
     try {
       const body = await readJson(req);
-      const answer = await answerWithOpenAI(body.message || "", body.lead || {});
-      if (!answer) {
+      const result = await converseWithOpenAI({
+        message: body.message || "",
+        lead: body.lead || {},
+        history: body.history || []
+      });
+      if (!result) {
         send(res, 503, JSON.stringify({ ok: false, error: "OpenAI no configurado" }), { "Content-Type": "application/json" });
         return;
       }
-      send(res, 200, JSON.stringify({ ok: true, answer }), { "Content-Type": "application/json" });
+      send(res, 200, JSON.stringify({ ok: true, ...result }), { "Content-Type": "application/json" });
     } catch (error) {
       send(res, 500, JSON.stringify({ ok: false, error: error.message }), { "Content-Type": "application/json" });
     }

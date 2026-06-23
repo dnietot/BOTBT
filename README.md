@@ -80,7 +80,18 @@ Para integrarlo luego en WordPress hay dos caminos:
 
 ## Próximo paso para IA real con PDFs
 
-Este MVP usa una base de conocimiento local derivada del portafolio cuando no hay backend de IA configurado. Para activar IA real con lectura de PDFs:
+El backend ya puede usar OpenAI como motor conversacional. Si `OPENAI_API_KEY` esta configurada, `/api/chat` usa IA para responder, extraer datos del lead y preguntar solo lo que falte.
+
+Para activar IA real en Render agrega:
+
+```text
+OPENAI_API_KEY=pegar_en_render_no_en_github
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+Con solo `OPENAI_API_KEY`, el bot usa `portfolio_text.txt` como contexto del portafolio.
+
+Para usar busqueda documental con PDF indexado:
 
 1. Crear un backend con OpenAI Responses API.
 2. Subir el PDF a un vector store.
@@ -95,4 +106,4 @@ OPENAI_VECTOR_STORE_ID=vs_xxxxxxxxx
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-El archivo `server.js` ya incluye el endpoint `/api/chat` para usar OpenAI cuando esas variables existan.
+`OPENAI_VECTOR_STORE_ID` es opcional por ahora. Si no existe, el bot usa el texto extraido del portafolio incluido en el repo.
