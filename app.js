@@ -79,7 +79,7 @@ const serviceKnowledge = [
 ];
 
 const state = {
-  lead: JSON.parse(localStorage.getItem("btLead") || "{}"),
+  lead: {},
   fieldIndex: 0,
   completed: false
 };
@@ -121,7 +121,6 @@ function renderLead() {
 }
 
 function persistLead() {
-  localStorage.setItem("btLead", JSON.stringify(state.lead));
   renderLead();
 }
 
@@ -163,6 +162,15 @@ function extractWithPatterns(text, patterns) {
 
 function stopAtNextField(value) {
   return cleanValue(value.split(/\b(?:mi correo|correo|email|e-mail|telefono|teléfono|whatsapp|celular|empresa|compania|compañia|compañía|cargo|ciudad|pais|país|servicio|necesito|busco|quiero|requiero|inquietud)\b/i)[0]);
+}
+
+function looksLikeName(value) {
+  const cleaned = cleanValue(value);
+  const normalized = normalize(cleaned);
+  if (!cleaned || cleaned.length > 60) return false;
+  if (/[?@]|\d/.test(cleaned)) return false;
+  if (/\b(necesito|quiero|busco|requiero|servicio|auditoria|auditoría|tributario|legal|outsourcing|consultoria|consultoría|correo|telefono|teléfono|whatsapp|empresa|cargo|ciudad|pais|país|gerente|director|jefe|contador|abogado|socio|consultor|analista|coordinador|administrador|presidente)\b/i.test(cleaned)) return false;
+  return normalized.split(/\s+/).filter(Boolean).length <= 5;
 }
 
 function extractLeadData(text, preferredKey) {
@@ -208,7 +216,10 @@ function extractLeadData(text, preferredKey) {
   if (need) data.inquietud = cleanValue(need);
 
   if (preferredKey && !data[preferredKey]) {
-    if (preferredKey === "nombre") data.nombre = titleCaseName(raw.replace(/^(me llamo|mi nombre es|soy)\s+/i, ""));
+    if (preferredKey === "nombre") {
+      const possibleName = raw.replace(/^(me llamo|mi nombre es|soy)\s+/i, "");
+      if (looksLikeName(possibleName)) data.nombre = titleCaseName(possibleName);
+    }
     if (preferredKey === "empresa") data.empresa = stopAtNextField(raw.replace(/^(mi empresa es|empresa es|trabajo en|laboro en|represento a)\s+/i, ""));
     if (preferredKey === "cargo") data.cargo = stopAtNextField(raw.replace(/^(mi cargo es|cargo es|soy el|soy la|soy)\s+/i, ""));
     if (preferredKey === "email" && email) data.email = email[0];
@@ -315,7 +326,7 @@ async function finishLead() {
   addMessage("bot", `${intro}\n\n${answer}\n\nPuedes seguir preguntando sobre los servicios del portafolio.`);
 }
 
-function handleFieldAnswer(value) {
+async function handleFieldAnswer(value) {
   const field = leadFields[state.fieldIndex];
   const extracted = extractLeadData(value, field.key);
   mergeExtractedLead(extracted);
@@ -327,7 +338,11 @@ function handleFieldAnswer(value) {
   }
 
   if (!extracted[field.key] && !state.lead[field.key]) {
-    addMessage("bot", field.key === "email" ? "Por favor ingresa un correo válido para continuar." : "Gracias. Para completar el registro necesito este dato de forma clara.");
+    if (extracted.servicio || extracted.inquietud) {
+      const answer = await answerQuestion(value);
+      addMessage("bot", answer);
+    }
+    addMessage("bot", field.key === "email" ? "Por favor ingresa un correo válido para continuar." : "Para canalizar tu solicitud con el equipo adecuado, necesito completar primero este dato.");
     addMessage("bot", field.prompt);
     return;
   }
@@ -372,7 +387,6 @@ chatForm.addEventListener("submit", (event) => {
 });
 
 resetButton.addEventListener("click", () => {
-  localStorage.removeItem("btLead");
   state.lead = {};
   state.fieldIndex = 0;
   state.completed = false;
