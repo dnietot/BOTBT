@@ -67,7 +67,16 @@ function safeJsonParse(text) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1));
+    }
+    throw error;
+  }
 }
 
 function leadEmailText(lead) {
@@ -165,6 +174,41 @@ async function converseWithOpenAI({ message, lead, history }) {
           ]
         }
       ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "baker_tilly_bot_response",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              answer: { type: "string" },
+              lead: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  nombre: { type: "string" },
+                  empresa: { type: "string" },
+                  cargo: { type: "string" },
+                  email: { type: "string" },
+                  telefono: { type: "string" },
+                  ubicacion: { type: "string" },
+                  servicio: { type: "string" },
+                  inquietud: { type: "string" }
+                },
+                required: REQUIRED_FIELDS
+              },
+              missingFields: {
+                type: "array",
+                items: { type: "string", enum: REQUIRED_FIELDS }
+              },
+              completed: { type: "boolean" }
+            },
+            required: ["answer", "lead", "missingFields", "completed"]
+          }
+        }
+      },
       ...(tools ? { tools } : {})
     })
   });

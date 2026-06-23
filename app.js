@@ -310,9 +310,16 @@ async function chatWithAI(text) {
       })
     });
 
-    if (!response.ok) return false;
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      addMessage("bot", error.error || "No pude conectar con el motor de IA. Revisa que OPENAI_API_KEY este configurada en Render y vuelve a desplegar.");
+      return true;
+    }
     const data = await response.json();
-    if (!data.answer) return false;
+    if (!data.answer) {
+      addMessage("bot", "La IA no devolvio una respuesta valida. Intenta de nuevo en unos segundos.");
+      return true;
+    }
 
     state.lead = { ...state.lead, ...(data.lead || {}) };
     state.fieldIndex = nextMissingField();
@@ -333,7 +340,8 @@ async function chatWithAI(text) {
 
     return true;
   } catch (error) {
-    return false;
+    addMessage("bot", "No pude conectar con el motor de IA. Si estas en Render, revisa el deploy y las variables de entorno.");
+    return true;
   }
 }
 
@@ -419,16 +427,7 @@ chatForm.addEventListener("submit", (event) => {
   addMessage("user", value);
   chatInput.value = "";
 
-  chatWithAI(value).then((handled) => {
-    if (handled) return;
-
-  if (!state.completed) {
-    handleFieldAnswer(value);
-    return;
-  }
-
-  answerQuestion(value).then((answer) => addMessage("bot", answer));
-  });
+  chatWithAI(value);
 });
 
 resetButton.addEventListener("click", () => {
@@ -439,8 +438,7 @@ resetButton.addEventListener("click", () => {
   state.leadSubmitted = false;
   messages.innerHTML = "";
   renderLead();
-  addMessage("bot", "Bienvenido al asistente de Baker Tilly Colombia. Para orientarte y canalizar tu solicitud, recopilaré algunos datos de contacto.");
-  addMessage("bot", leadFields[0].prompt);
+  addMessage("bot", "Hola, soy el asistente virtual de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
 });
 
 emailButton.addEventListener("click", prepareEmail);
@@ -449,5 +447,4 @@ downloadButton.addEventListener("click", downloadLead);
 renderLead();
 state.fieldIndex = nextMissingField();
 state.completed = state.fieldIndex === -1;
-addMessage("bot", "Bienvenido al asistente de Baker Tilly Colombia. Para orientarte y canalizar tu solicitud, recopilaré algunos datos de contacto.");
-addMessage("bot", state.completed ? "Ya tengo un lead cargado. Puedes preguntarme sobre los servicios del portafolio o preparar el correo de seguimiento." : leadFields[state.fieldIndex].prompt);
+addMessage("bot", "Hola, soy el asistente virtual de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
