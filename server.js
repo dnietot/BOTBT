@@ -79,6 +79,50 @@ function safeJsonParse(text) {
   }
 }
 
+function getResponseText(data) {
+  if (data && typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  const parts = [];
+  for (const item of data?.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") parts.push(content.text);
+      if (typeof content.output_text === "string") parts.push(content.output_text);
+      if (typeof content?.text?.value === "string") parts.push(content.text.value);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function fallbackConversationalAnswer(message, missingFields) {
+  const normalized = String(message || "").toLowerCase();
+  const asksValuation = /\b(valoracion|valoración|valorar|avaluo|avalúo)\b/.test(normalized);
+  const asksHouse = /\b(casa|vivienda|apartamento|inmueble)\b/.test(normalized);
+
+  if (asksValuation && asksHouse) {
+    return [
+      "Gracias por la información. Baker Tilly Colombia cuenta con servicios de valoración dentro de su línea de finanzas corporativas, incluyendo valoración de empresas, intangibles y reportes financieros.",
+      "Para una casa o inmueble específico, necesito confirmar si se trata de un activo empresarial, una operación corporativa o una necesidad personal de avalúo inmobiliario. Con eso puedo canalizar mejor tu solicitud.",
+      `Para continuar, compárteme por favor: ${missingFields.slice(0, 2).map((field) => FIELD_LABELS[field] || field).join(" y ")}.`
+    ].join("\n\n");
+  }
+
+  return [
+    "Gracias por escribirme. Puedo orientarte sobre los servicios de Baker Tilly Colombia y canalizar tu solicitud con el equipo correspondiente.",
+    `Para ayudarte mejor, compárteme por favor: ${missingFields.slice(0, 2).map((field) => FIELD_LABELS[field] || field).join(" y ")}.`
+  ].join("\n\n");
+}
+
+function mergeKnownLead(currentLead, extractedLead) {
+  const merged = { ...currentLead };
+  for (const key of REQUIRED_FIELDS) {
+    const value = String(extractedLead?.[key] || "").trim();
+    if (value) merged[key] = value;
+  }
+  return merged;
+}
+
 function leadEmailText(lead) {
   return [
     "Nuevo lead capturado desde el bot de Baker Tilly Colombia.",
@@ -149,6 +193,9 @@ async function converseWithOpenAI({ message, lead, history }) {
         "Extrae datos aunque el usuario los entregue en frases naturales y conserva los datos ya conocidos.",
         "Debes recopilar estos campos: nombre, empresa, cargo, email, telefono, ubicacion, servicio, inquietud.",
         "Pregunta maximo dos datos faltantes por turno para que la conversacion no se sienta como formulario.",
+        "Siempre responde primero la inquietud del usuario de forma util y especifica; despues pide los datos faltantes.",
+        "Si el usuario pide valoracion de una casa o inmueble, explica que el portafolio menciona valoracion en finanzas corporativas y reportes financieros; pregunta si el inmueble es un activo empresarial o si busca un avaluo inmobiliario especifico.",
+        "Nunca respondas solo 'comparte mas informacion'; da una orientacion concreta antes de preguntar.",
         "Usa el portafolio de servicios como fuente principal para hablar de Baker Tilly Colombia.",
         "No inventes precios, promesas, tiempos ni condiciones no presentes en la informacion disponible.",
         "Cuando el caso requiera asesoria comercial o tecnica, ofrece canalizarlo con un asesor.",
@@ -219,12 +266,12 @@ async function converseWithOpenAI({ message, lead, history }) {
   }
 
   const data = await response.json();
-  const parsed = safeJsonParse(data.output_text || "{}");
-  const mergedLead = { ...currentLead, ...(parsed.lead || {}) };
+  const parsed = safeJsonParse(getResponseText(data) || "{}");
+  const mergedLead = mergeKnownLead(currentLead, parsed.lead || {});
   const missingFields = missingLeadFields(mergedLead);
 
   return {
-    answer: parsed.answer || "Gracias. Para continuar, por favor comparteme un poco mas de informacion sobre tu necesidad.",
+    answer: parsed.answer || fallbackConversationalAnswer(message, missingFields),
     lead: mergedLead,
     missingFields,
     completed: missingFields.length === 0
