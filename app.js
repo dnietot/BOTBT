@@ -438,7 +438,7 @@ resetButton.addEventListener("click", () => {
   state.leadSubmitted = false;
   messages.innerHTML = "";
   renderLead();
-  addMessage("bot", "Hola, soy el asistente virtual de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
+  addMessage("bot", "Hola, soy el asistente virtual Bety de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
 });
 
 emailButton.addEventListener("click", prepareEmail);
@@ -447,4 +447,4 @@ downloadButton.addEventListener("click", downloadLead);
 renderLead();
 state.fieldIndex = nextMissingField();
 state.completed = state.fieldIndex === -1;
-addMessage("bot", "Hola, soy el asistente virtual de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
+addMessage("bot", "Hola, soy el asistente virtual Bety de Baker Tilly Colombia. Cuéntame qué necesitas y, mientras conversamos, tomaré los datos necesarios para que un asesor pueda dar seguimiento.");
